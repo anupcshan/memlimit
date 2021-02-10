@@ -138,7 +138,7 @@ func main() {
 				filterableVsz += stat.VirtualMemory()
 				filterableRss += stat.ResidentMemory()
 				log.Println(stat.Starttime, stat.PID, stat.State, stat.Comm, toMB(stat.VirtualMemory()), toMB(stat.ResidentMemory()))
-				if filterableVsz > toMB(flagVszLimitMb) && counter > 0 {
+				if filterableVsz > flagVszLimitMb*1024*1024 && counter > 0 {
 					if stat.State != "T" {
 						syscall.Kill(stat.PID, syscall.SIGSTOP)
 					}
