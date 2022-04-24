@@ -1,6 +1,6 @@
 module github.com/anupcshan/memlimit
 
-go 1.12
+go 1.18
 
 require github.com/prometheus/procfs v0.0.2
 

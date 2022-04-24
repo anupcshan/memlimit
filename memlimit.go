@@ -1,10 +1,11 @@
-// +build linux
+//go:build linux
 
 package main
 
 import (
 	"flag"
 	"log"
+	"math"
 	"sort"
 	"syscall"
 	"time"
@@ -57,9 +58,13 @@ func main() {
 	var flagPid int
 	var flagVszLimitMb uint64
 	var flagCheckInterval time.Duration
+	var flagVerbose bool
+	var flagResumeLimit int
 	flag.IntVar(&flagPid, "pid", 0, "PID of top-level process in process tree to track")
 	flag.Uint64Var(&flagVszLimitMb, "vsz-limit-mb", 1024, "VSZ limit of non-stopped filtered processes")
 	flag.DurationVar(&flagCheckInterval, "check-interval", 250*time.Millisecond, "Interval between consecutive procfs scans")
+	flag.BoolVar(&flagVerbose, "verbose", false, "Verbose logging")
+	flag.IntVar(&flagResumeLimit, "resume-limit", math.MaxInt, "Number of processes to resume in one interval")
 	flag.Parse()
 
 	for true {
@@ -134,23 +139,35 @@ func main() {
 				return filteredStats[i].PID < filteredStats[j].PID
 			})
 
+			var resumed int
+			var atleastOneStopped bool
+
 			for counter, stat := range filteredStats {
 				filterableVsz += stat.VirtualMemory()
 				filterableRss += stat.ResidentMemory()
-				log.Println(stat.Starttime, stat.PID, stat.State, stat.Comm, toMB(stat.VirtualMemory()), toMB(stat.ResidentMemory()))
-				if filterableVsz > flagVszLimitMb*1024*1024 && counter > 0 {
+				if flagVerbose {
+					log.Println(stat.Starttime, stat.PID, stat.State, stat.Comm, toMB(stat.VirtualMemory()), toMB(stat.ResidentMemory()))
+				}
+
+				if (filterableVsz > flagVszLimitMb*1024*1024 || atleastOneStopped) && counter > 0 {
 					if stat.State != "T" {
+						log.Printf("Stopping %d %s", stat.PID, stat.Comm)
 						syscall.Kill(stat.PID, syscall.SIGSTOP)
+						atleastOneStopped = true
 					}
-				} else {
-					if stat.State == "T" {
-						syscall.Kill(stat.PID, syscall.SIGCONT)
-					}
+				} else if stat.State == "T" && resumed < flagResumeLimit {
+					log.Printf("Resuming %d %s", stat.PID, stat.Comm)
+					syscall.Kill(stat.PID, syscall.SIGCONT)
+					resumed++
+				} else if stat.State == "T" {
+					atleastOneStopped = true
 				}
 			}
 
-			log.Printf("Total VSZ: %dM RSS: %dM Procs: %d (Stopped: %d Running %d)", toMB(filterableVsz), toMB(filterableRss), filteredRunning+filteredStopped, filteredStopped, filteredRunning)
-			log.Printf("Unfiltered VSZ: %dM RSS: %dM Procs: %d", toMB(unfilterableVsz), toMB(unfilterableRss), unfiltered)
+			if flagVerbose {
+				log.Printf("Total VSZ: %dM RSS: %dM Procs: %d (Stopped: %d Running %d)", toMB(filterableVsz), toMB(filterableRss), filteredRunning+filteredStopped, filteredStopped, filteredRunning)
+				log.Printf("Unfiltered VSZ: %dM RSS: %dM Procs: %d", toMB(unfilterableVsz), toMB(unfilterableRss), unfiltered)
+			}
 		}
 		time.Sleep(flagCheckInterval)
 	}
