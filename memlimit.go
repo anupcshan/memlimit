@@ -4,6 +4,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"log"
 	"math"
 	"sort"
@@ -44,6 +45,7 @@ func getPidMap(stats map[int]procfs.ProcStat) map[int][]int {
 var whitelistedProcesses = map[string]bool{
 	"cc1plus": true,
 	"cc1":     true,
+	"ar":      true,
 	"as":      true,
 	"ld":      true,
 }
@@ -151,12 +153,16 @@ func main() {
 
 				if (filterableVsz > flagVszLimitMb*1024*1024 || atleastOneStopped) && counter > 0 {
 					if stat.State != "T" {
-						log.Printf("Stopping %d %s", stat.PID, stat.Comm)
+						if flagVerbose {
+							log.Printf("Stopping %d %s", stat.PID, stat.Comm)
+						}
 						syscall.Kill(stat.PID, syscall.SIGSTOP)
 						atleastOneStopped = true
 					}
 				} else if stat.State == "T" && resumed < flagResumeLimit {
-					log.Printf("Resuming %d %s", stat.PID, stat.Comm)
+					if flagVerbose {
+						log.Printf("Resuming %d %s", stat.PID, stat.Comm)
+					}
 					syscall.Kill(stat.PID, syscall.SIGCONT)
 					resumed++
 				} else if stat.State == "T" {
@@ -167,6 +173,15 @@ func main() {
 			if flagVerbose {
 				log.Printf("Total VSZ: %dM RSS: %dM Procs: %d (Stopped: %d Running %d)", toMB(filterableVsz), toMB(filterableRss), filteredRunning+filteredStopped, filteredStopped, filteredRunning)
 				log.Printf("Unfiltered VSZ: %dM RSS: %dM Procs: %d", toMB(unfilterableVsz), toMB(unfilterableRss), unfiltered)
+			} else {
+				fmt.Printf(
+					"\r\033[2K[R:%d|S:%d|I:%d][V:%dM][R:%dM]",
+					filteredRunning,
+					filteredStopped,
+					unfiltered,
+					toMB(filterableVsz),
+					toMB(filterableRss),
+				)
 			}
 		}
 		time.Sleep(flagCheckInterval)
